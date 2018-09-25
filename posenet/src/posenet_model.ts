@@ -17,23 +17,26 @@
 
 import * as tf from '@tensorflow/tfjs';
 
-import {CheckpointLoader} from './checkpoint_loader';
-import {checkpoints} from './checkpoints';
+import { CheckpointLoader } from './checkpoint_loader';
+import { checkpoints } from './checkpoints';
 // tslint:disable-next-line:max-line-length
-import {assertValidOutputStride, assertValidScaleFactor, MobileNet, MobileNetMultiplier, OutputStride} from './mobilenet';
-import {decodeMultiplePoses} from './multiPose/decodeMultiplePoses';
-import {decodeSinglePose} from './singlePose/decodeSinglePose';
-import {Pose} from './types';
-import {getValidResolution, scalePose, scalePoses} from './util';
+import { assertValidOutputStride, assertValidScaleFactor, MobileNet, MobileNetMultiplier, OutputStride } from './mobilenet';
+import { decodeMultiplePoses } from './multiPose/decodeMultiplePoses';
+import { decodeSinglePose } from './singlePose/decodeSinglePose';
+import { Pose } from './types';
+import { getValidResolution, scalePose, scalePoses } from './util';
 
-export type PoseNetResolution = 161|193|257|289|321|353|385|417|449|481|513;
+const GOOGLE_CLOUD_STORAGE_DIR =
+  'https://storage.googleapis.com/tfjs-models/weights/posenet/';
+
+export type PoseNetResolution = 161 | 193 | 257 | 289 | 321 | 353 | 385 | 417 | 449 | 481 | 513;
 
 export type InputType =
-    ImageData|HTMLImageElement|HTMLCanvasElement|HTMLVideoElement|tf.Tensor3D;
+  ImageData | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | tf.Tensor3D;
 
 function toInputTensor(
-    input: InputType, resizeHeight: number, resizeWidth: number,
-    flipHorizontal: boolean): tf.Tensor3D {
+  input: InputType, resizeHeight: number, resizeWidth: number,
+  flipHorizontal: boolean): tf.Tensor3D {
   const imageTensor = input instanceof tf.Tensor ? input : tf.fromPixels(input);
 
   if (flipHorizontal) {
@@ -62,18 +65,17 @@ export class PoseNet {
    * (inputDimension - 1)/outputStride + 1
    * @return heatmapScores, offsets
    */
-  predictForSinglePose(input: tf.Tensor3D, outputStride: OutputStride = 16):
-      {heatmapScores: tf.Tensor3D, offsets: tf.Tensor3D} {
+  predictForSinglePose(input: tf.Tensor3D, outputStride: OutputStride = 16): { heatmapScores: tf.Tensor3D, offsets: tf.Tensor3D } {
     assertValidOutputStride(outputStride);
     return tf.tidy(() => {
       const mobileNetOutput = this.mobileNet.predict(input, outputStride);
 
       const heatmaps =
-          this.mobileNet.convToOutput(mobileNetOutput, 'heatmap_2');
+        this.mobileNet.convToOutput(mobileNetOutput, 'heatmap_2');
 
       const offsets = this.mobileNet.convToOutput(mobileNetOutput, 'offset_2');
 
-      return {heatmapScores: heatmaps.sigmoid(), offsets};
+      return { heatmapScores: heatmaps.sigmoid(), offsets };
     });
   }
 
@@ -100,15 +102,15 @@ export class PoseNet {
       const mobileNetOutput = this.mobileNet.predict(input, outputStride);
 
       const heatmaps =
-          this.mobileNet.convToOutput(mobileNetOutput, 'heatmap_2');
+        this.mobileNet.convToOutput(mobileNetOutput, 'heatmap_2');
 
       const offsets = this.mobileNet.convToOutput(mobileNetOutput, 'offset_2');
 
       const displacementFwd =
-          this.mobileNet.convToOutput(mobileNetOutput, 'displacement_fwd_2');
+        this.mobileNet.convToOutput(mobileNetOutput, 'displacement_fwd_2');
 
       const displacementBwd =
-          this.mobileNet.convToOutput(mobileNetOutput, 'displacement_bwd_2');
+        this.mobileNet.convToOutput(mobileNetOutput, 'displacement_bwd_2');
 
       return {
         heatmapScores: heatmaps.sigmoid(),
@@ -146,22 +148,22 @@ export class PoseNet {
    * positions of the keypoints are in the same scale as the original image
    */
   async estimateSinglePose(
-      input: InputType, imageScaleFactor = 0.5, flipHorizontal = false,
-      outputStride: OutputStride = 16): Promise<Pose> {
+    input: InputType, imageScaleFactor = 0.5, flipHorizontal = false,
+    outputStride: OutputStride = 16): Promise<Pose> {
     assertValidOutputStride(outputStride);
     assertValidScaleFactor(imageScaleFactor);
 
     const [height, width] = input instanceof tf.Tensor ?
-        [input.shape[0], input.shape[1]] :
-        [input.height, input.width];
+      [input.shape[0], input.shape[1]] :
+      [input.height, input.width];
     const resizedHeight =
-        getValidResolution(imageScaleFactor, height, outputStride);
+      getValidResolution(imageScaleFactor, height, outputStride);
     const resizedWidth =
-        getValidResolution(imageScaleFactor, width, outputStride);
+      getValidResolution(imageScaleFactor, width, outputStride);
 
-    const {heatmapScores, offsets} = tf.tidy(() => {
+    const { heatmapScores, offsets } = tf.tidy(() => {
       const inputTensor =
-          toInputTensor(input, resizedHeight, resizedWidth, flipHorizontal);
+        toInputTensor(input, resizedHeight, resizedWidth, flipHorizontal);
       return this.predictForSinglePose(inputTensor, outputStride);
     });
 
@@ -216,30 +218,30 @@ export class PoseNet {
    * in the same scale as the original image
    */
   async estimateMultiplePoses(
-      input: InputType, imageScaleFactor = 0.5, flipHorizontal = false,
-      outputStride: OutputStride = 16, maxDetections = 5, scoreThreshold = .5,
-      nmsRadius = 20): Promise<Pose[]> {
+    input: InputType, imageScaleFactor = 0.5, flipHorizontal = false,
+    outputStride: OutputStride = 16, maxDetections = 5, scoreThreshold = .5,
+    nmsRadius = 20): Promise<Pose[]> {
     assertValidOutputStride(outputStride);
     assertValidScaleFactor(imageScaleFactor);
 
     const [height, width] = input instanceof tf.Tensor ?
-        [input.shape[0], input.shape[1]] :
-        [input.height, input.width];
+      [input.shape[0], input.shape[1]] :
+      [input.height, input.width];
     const resizedHeight =
-        getValidResolution(imageScaleFactor, height, outputStride);
+      getValidResolution(imageScaleFactor, height, outputStride);
     const resizedWidth =
-        getValidResolution(imageScaleFactor, width, outputStride);
+      getValidResolution(imageScaleFactor, width, outputStride);
 
-    const {heatmapScores, offsets, displacementFwd, displacementBwd} =
-        tf.tidy(() => {
-          const inputTensor =
-              toInputTensor(input, resizedHeight, resizedWidth, flipHorizontal);
-          return this.predictForMultiPose(inputTensor, outputStride);
-        });
+    const { heatmapScores, offsets, displacementFwd, displacementBwd } =
+      tf.tidy(() => {
+        const inputTensor =
+          toInputTensor(input, resizedHeight, resizedWidth, flipHorizontal);
+        return this.predictForMultiPose(inputTensor, outputStride);
+      });
 
     const poses = await decodeMultiplePoses(
-        heatmapScores, offsets, displacementFwd, displacementBwd, outputStride,
-        maxDetections, scoreThreshold, nmsRadius);
+      heatmapScores, offsets, displacementFwd, displacementBwd, outputStride,
+      maxDetections, scoreThreshold, nmsRadius);
 
     heatmapScores.dispose();
     offsets.dispose();
@@ -269,35 +271,39 @@ export class PoseNet {
  * smaller value to increase speed at the cost of accuracy.
  *
  */
-export async function load(multiplier: MobileNetMultiplier = 1.01):
-    Promise<PoseNet> {
+export async function load(multiplier: MobileNetMultiplier = 1.01,
+  storageDir: string = GOOGLE_CLOUD_STORAGE_DIR): Promise<PoseNet> {
   if (tf == null) {
     throw new Error(
-        `Cannot find TensorFlow.js. If you are using a <script> tag, please ` +
-        `also include @tensorflow/tfjs on the page before using this model.`);
+      `Cannot find TensorFlow.js. If you are using a <script> tag, please ` +
+      `also include @tensorflow/tfjs on the page before using this model.`);
   }
   const possibleMultipliers = Object.keys(checkpoints);
   tf.util.assert(
-      typeof multiplier === 'number',
-      `got multiplier type of ${typeof multiplier} when it should be a ` +
-          `number.`);
+    typeof multiplier === 'number',
+    `got multiplier type of ${typeof multiplier} when it should be a ` +
+    `number.`);
 
   tf.util.assert(
-      possibleMultipliers.indexOf(multiplier.toString()) >= 0,
-      `invalid multiplier value of ${
-          multiplier}.  No checkpoint exists for that ` +
-          `multiplier. Must be one of ${possibleMultipliers.join(',')}.`);
+    possibleMultipliers.indexOf(multiplier.toString()) >= 0,
+    `invalid multiplier value of ${
+    multiplier}.  No checkpoint exists for that ` +
+    `multiplier. Must be one of ${possibleMultipliers.join(',')}.`);
 
-  const mobileNet = await mobilenetLoader.load(multiplier);
+  const mobileNet = await mobilenetLoader.load(multiplier, storageDir);
 
   return new PoseNet(mobileNet);
 }
 
 export const mobilenetLoader = {
-  load: async(multiplier: MobileNetMultiplier): Promise<MobileNet> => {
+  load: async (multiplier: MobileNetMultiplier, storageDir: string): Promise<MobileNet> => {
     const checkpoint = checkpoints[multiplier];
 
-    const checkpointLoader = new CheckpointLoader(checkpoint.url);
+    if (!storageDir.endsWith('/')) {
+      storageDir += '/';
+    }
+
+    const checkpointLoader = new CheckpointLoader(storageDir + checkpoint.dir);
 
     const variables = await checkpointLoader.getAllVariables();
 
